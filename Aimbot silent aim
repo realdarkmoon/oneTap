@@ -1,0 +1,459 @@
+local Players = game:GetService("Players")
+
+-- Shared state for the loader
+local Hub = {
+    genv = (getgenv and getgenv()) or _G,
+    registry = {},
+    cleaned = false,
+}
+
+-- Re-executing the script cleanly unloads the previous copy first
+local previousUnload = Hub.genv.yutahubUnload
+if previousUnload then
+    pcall(previousUnload)
+end
+
+local LocalPlayer = Players.LocalPlayer
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(520, 860)
+local windowWidth = math.max(280, math.min(520, viewport.X - 24))
+local windowHeight = math.max(360, math.min(860, viewport.Y - 48))
+
+local Window = WindUI:CreateWindow({
+    Title = "yutahub",
+    Icon = "bird",
+    Author = "yutahub",
+    Folder = "yutahub",
+    Size = UDim2.fromOffset(windowWidth, windowHeight),
+    Transparent = true,
+    Theme = "Dark",
+    ToggleKey = Enum.KeyCode.RightShift,
+})
+
+Window:Tag({Title = "yutahub", Color = Color3.fromRGB(70, 205, 180)})
+
+-- Notification gate (controlled from Settings tab)
+local notificationsEnabled = true
+Hub.rawNotify = WindUI.Notify
+WindUI.Notify = function(self, opts)
+    if notificationsEnabled == false then
+        return
+    end
+    return Hub.rawNotify(self, opts)
+end
+
+-- Element registry
+function Hub.register(key, element, default)
+    if element ~= nil then
+        table.insert(Hub.registry, {key = key, element = element, default = default})
+    end
+end
+
+function Hub.trackTab(tab, tabName)
+    local TRACKED_KINDS = {"Toggle", "Slider", "Dropdown", "Input", "Keybind", "Colorpicker"}
+    local used = {}
+    for _, kind in ipairs(TRACKED_KINDS) do
+        local original = tab[kind]
+        if type(original) == "function" then
+            tab[kind] = function(self, cfg)
+                local element = original(self, cfg)
+                if type(cfg) == "table" and type(cfg.Title) == "string" and element ~= nil then
+                    local base = tabName .. "_" .. cfg.Title
+                    local key, n = base, 1
+                    while used[key] do
+                        n = n + 1
+                        key = base .. "_" .. n
+                    end
+                    used[key] = true
+                    local default = cfg.Value
+                    if kind == "Slider" then
+                        default = type(default) == "table" and default.Default or nil
+                    elseif kind == "Colorpicker" then
+                        default = cfg.Default
+                    end
+                    Hub.register(key, element, default)
+                end
+                return element
+            end
+        end
+    end
+    return tab
+end
+
+Hub.rawTab = Window.Tab
+Window.Tab = function(self, cfg)
+    local tab = Hub.rawTab(self, cfg)
+    return Hub.trackTab(tab, type(cfg) == "table" and cfg.Title or "Tab")
+end
+
+-- =====================================================================
+-- Settings tab
+-- =====================================================================
+do
+    local SettingsTab = Hub.rawTab(Window, {Title = "Settings", Icon = "settings"})
+    Hub.SettingsTab = SettingsTab
+
+    local function toast(title, content, icon)
+        pcall(function()
+            Hub.rawNotify(WindUI, {Title = title, Content = content, Duration = 3, Icon = icon or "info"})
+        end)
+    end
+
+    local hasFS = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
+
+    -- Interface
+    SettingsTab:Section({Title = "Interface"})
+
+    local themeNames = {}
+    pcall(function()
+        for name in pairs(WindUI:GetThemes()) do
+            table.insert(themeNames, name)
+        end
+    end)
+    table.sort(themeNames)
+    if #themeNames == 0 then
+        themeNames = {"Dark", "Light"}
+    end
+
+    local ThemeDropdown = SettingsTab:Dropdown({
+        Title = "Theme",
+        Desc = "Change the window colors.",
+        Values = themeNames,
+        Value = "Dark",
+        Callback = function(v)
+            pcall(function() WindUI:SetTheme(v) end)
+        end,
+    })
+    Hub.register("Settings_Theme", ThemeDropdown, "Dark")
+
+    local TransparencyToggle = SettingsTab:Toggle({
+        Title = "Window Transparency",
+        Desc = "Make the window background translucent.",
+        Icon = "layers",
+        Type = "Checkbox",
+        Value = true,
+        Callback = function(v)
+            pcall(function() Window:ToggleTransparency(v == true) end)
+        end,
+    })
+    Hub.register("Settings_Transparency", TransparencyToggle, true)
+
+    local ScaleSlider = SettingsTab:Slider({
+        Title = "UI Scale",
+        Desc = "Resize the whole window (needs a WindUI version that supports scaling).",
+        Step = 0.05,
+        Value = {Min = 0.7, Max = 1.3, Default = 1.0},
+        Callback = function(v)
+            pcall(function() Window:SetUIScale(tonumber(v) or 1) end)
+        end,
+    })
+    Hub.register("Settings_UIScale", ScaleSlider, 1.0)
+
+    local toggleKeys = {"RightShift", "LeftAlt", "RightAlt", "RightControl", "Insert", "Home", "End", "Delete", "K", "F6", "F7", "F8"}
+    local KeyDropdown = SettingsTab:Dropdown({
+        Title = "Toggle UI Key",
+        Desc = "Key used to show or hide this window.",
+        Values = toggleKeys,
+        Value = "RightShift",
+        Callback = function(v)
+            local key = typeof(v) == "EnumItem" and v or Enum.KeyCode[tostring(v)]
+            if key then
+                pcall(function() Window:SetToggleKey(key) end)
+            end
+        end,
+    })
+    Hub.register("Settings_ToggleKey", KeyDropdown, "RightShift")
+
+    local NotifyToggle = SettingsTab:Toggle({
+        Title = "Notifications",
+        Desc = "Show pop-up notifications.",
+        Icon = "bell",
+        Type = "Checkbox",
+        Value = true,
+        Callback = function(v)
+            notificationsEnabled = v == true
+        end,
+    })
+    Hub.register("Settings_Notifications", NotifyToggle, true)
+
+    -- Configuration
+    SettingsTab:Section({Title = "Configuration"})
+
+    local AUTOLOAD_FILE = "yutahub_autoload.txt"
+    local selectedConfig = "default"
+    local newConfigName = ""
+
+    local function cleanName(name)
+        name = tostring(name or ""):gsub("[^%w%-_ ]", "")
+        name = name:gsub("^%s+", ""):gsub("%s+$", "")
+        return name
+    end
+
+    local function listConfigs()
+        local out = {}
+        local cm = Window.ConfigManager
+        if cm and cm.AllConfigs then
+            local ok, res = pcall(function() return cm:AllConfigs() end)
+            if ok and type(res) == "table" then
+                for k, v in pairs(res) do
+                    local n = type(v) == "string" and v or (type(k) == "string" and k or nil)
+                    if n then
+                        table.insert(out, (n:gsub("%.json$", "")))
+                    end
+                end
+            end
+        end
+        table.sort(out)
+        return out
+    end
+
+    local function buildConfig(name)
+        local cm = Window.ConfigManager
+        if not cm then
+            toast("Config", "Config manager is not available in this WindUI version.", "triangle-alert")
+            return nil
+        end
+        local ok, cfg = pcall(function() return cm:CreateConfig(name) end)
+        if not ok or not cfg then
+            toast("Config", "Could not create config '" .. name .. "'.", "triangle-alert")
+            return nil
+        end
+        for _, entry in ipairs(Hub.registry) do
+            pcall(function() cfg:Register(entry.key, entry.element) end)
+        end
+        return cfg
+    end
+
+    local initialConfigs = listConfigs()
+    if #initialConfigs == 0 then
+        initialConfigs = {"default"}
+    end
+
+    local ConfigDropdown
+    local function refreshConfigs(select)
+        local names = listConfigs()
+        if #names == 0 then
+            names = {"default"}
+        end
+        pcall(function() ConfigDropdown:Refresh(names) end)
+        if select then
+            selectedConfig = select
+            pcall(function() ConfigDropdown:Select(select) end)
+        end
+    end
+
+    ConfigDropdown = SettingsTab:Dropdown({
+        Title = "Config",
+        Desc = "Pick a saved config.",
+        Values = initialConfigs,
+        Value = initialConfigs[1],
+        Callback = function(v)
+            selectedConfig = cleanName(v)
+        end,
+    })
+    selectedConfig = initialConfigs[1]
+
+    SettingsTab:Input({
+        Title = "New Config Name",
+        Desc = "Type a name, then press Create & Save.",
+        Placeholder = "my-config",
+        Value = "",
+        Callback = function(v)
+            newConfigName = cleanName(v)
+        end,
+    })
+
+    SettingsTab:Button({
+        Title = "Create & Save",
+        Desc = "Save all current settings under the new name.",
+        Icon = "file-plus",
+        Callback = function()
+            if newConfigName == "" then
+                toast("Config", "Enter a config name first.", "triangle-alert")
+                return
+            end
+            local cfg = buildConfig(newConfigName)
+            if cfg and pcall(function() cfg:Save() end) then
+                toast("Config", "Saved '" .. newConfigName .. "'.", "check")
+                refreshConfigs(newConfigName)
+            end
+        end,
+    })
+
+    SettingsTab:Button({
+        Title = "Save Config",
+        Desc = "Overwrite the selected config with the current settings.",
+        Icon = "save",
+        Callback = function()
+            local name = cleanName(selectedConfig)
+            if name == "" then
+                return
+            end
+            local cfg = buildConfig(name)
+            if cfg and pcall(function() cfg:Save() end) then
+                toast("Config", "Saved '" .. name .. "'.", "check")
+                refreshConfigs(name)
+            end
+        end,
+    })
+
+    SettingsTab:Button({
+        Title = "Load Config",
+        Desc = "Apply the selected config to every setting.",
+        Icon = "folder-open",
+        Callback = function()
+            local name = cleanName(selectedConfig)
+            if name == "" then
+                return
+            end
+            local cfg = buildConfig(name)
+            if cfg then
+                if pcall(function() cfg:Load() end) then
+                    toast("Config", "Loaded '" .. name .. "'.", "check")
+                else
+                    toast("Config", "Config '" .. name .. "' was not found.", "triangle-alert")
+                end
+            end
+        end,
+    })
+
+    SettingsTab:Button({
+        Title = "Delete Config",
+        Desc = "Permanently delete the selected config.",
+        Icon = "trash-2",
+        Callback = function()
+            local name = cleanName(selectedConfig)
+            if name == "" then
+                return
+            end
+            local cfg = buildConfig(name)
+            if cfg and pcall(function() cfg:Delete() end) then
+                toast("Config", "Deleted '" .. name .. "'.", "check")
+                refreshConfigs()
+            end
+        end,
+    })
+
+    SettingsTab:Toggle({
+        Title = "Auto Load Selected Config",
+        Desc = "Load the selected config automatically every time the script is executed.",
+        Icon = "rotate-ccw",
+        Type = "Checkbox",
+        Value = hasFS and isfile(AUTOLOAD_FILE) or false,
+        Callback = function(v)
+            if not hasFS then
+                toast("Config", "Your executor has no file access.", "triangle-alert")
+                return
+            end
+            pcall(function()
+                if v then
+                    writefile(AUTOLOAD_FILE, cleanName(selectedConfig))
+                elseif isfile(AUTOLOAD_FILE) and type(delfile) == "function" then
+                    delfile(AUTOLOAD_FILE)
+                end
+            end)
+        end,
+    })
+
+    SettingsTab:Button({
+        Title = "Reset All Settings",
+        Desc = "Restore all UI options to default.",
+        Icon = "rotate-ccw",
+        Callback = function()
+            local count = 0
+            for _, entry in ipairs(Hub.registry) do
+                if entry.default ~= nil then
+                    if pcall(function() entry.element:Set(entry.default) end) then
+                        count = count + 1
+                    end
+                end
+            end
+            toast("Settings", "Reset " .. count .. " options to default.", "check")
+        end,
+    })
+
+    -- About
+    SettingsTab:Section({Title = "About"})
+
+    SettingsTab:Paragraph({
+        Title = "yutahub",
+        Desc = "Toggle the window with the key selected above (default: RightShift).",
+    })
+
+    SettingsTab:Button({
+        Title = "Join Discord",
+        Icon = "link",
+        Callback = function()
+            if type(setclipboard) == "function" then
+                pcall(setclipboard, "https://discord.gg/QxRKp9wNeE")
+                toast("Discord", "Invite link copied to clipboard.", "check")
+            else
+                toast("Discord", "https://discord.gg/QxRKp9wNeE", "link")
+            end
+        end,
+    })
+
+    SettingsTab:Button({
+        Title = "Unload Script",
+        Desc = "Close the window and clean up.",
+        Icon = "power",
+        Callback = function()
+            if Hub.cleanup then
+                Hub.cleanup()
+            end
+        end,
+    })
+
+    -- Auto-load saved config
+    if hasFS then
+        local ok, saved = pcall(function()
+            if isfile(AUTOLOAD_FILE) then
+                return cleanName(readfile(AUTOLOAD_FILE))
+            end
+        end)
+        if ok and type(saved) == "string" and saved ~= "" then
+            selectedConfig = saved
+            task.delay(1, function()
+                if Hub.cleaned then
+                    return
+                end
+                local cfg = buildConfig(saved)
+                if cfg and pcall(function() cfg:Load() end) then
+                    pcall(function() ConfigDropdown:Select(saved) end)
+                    toast("Config", "Auto-loaded '" .. saved .. "'.", "check")
+                end
+            end)
+        end
+    end
+end
+
+WindUI:Notify({
+    Title = "yutahub",
+    Content = "Loaded.",
+    Duration = 4,
+    Icon = "wind",
+})
+
+Hub.cleanup = function()
+    if Hub.cleaned then
+        return
+    end
+    Hub.cleaned = true
+
+    if Hub.genv.yutahubUnload == Hub.cleanup then
+        Hub.genv.yutahubUnload = nil
+    end
+
+    pcall(function() Window:Destroy() end)
+end
+
+Hub.genv.yutahubUnload = Hub.cleanup
+pcall(function()
+    Window:OnDestroy(function()
+        Hub.cleanup()
+    end)
+end)
+
+pcall(function() Window:SelectTab(1) end)
+      
