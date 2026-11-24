@@ -20,6 +20,7 @@ local AimFOV = 150
 local SpeedValue = 16
 local JumpValue = 25
 local Noclip = false
+local ShiftLock = false
 local ESP = false
 local SkeletonESP = false
 local Tracers = false
@@ -1010,6 +1011,9 @@ local tabOrderCounter = 0
 local themedToggles = {}
 local themedSliders = {}
 local themedActionButtons = {}
+local themedInputRows = {}
+local toggleControllers = {}
+local sliderControllers = {}
 
 local function createTab(name)
 	tabOrderCounter += 1
@@ -1185,6 +1189,22 @@ local function addToggle(page, labelText, defaultVal, callback)
 		RefreshBind = bindSlot.RefreshColor
 	})
 
+	toggleControllers[labelText] = {
+		GetState = function() return state end,
+		SetState = function(v) setToggleState(v, false) end,
+		GetKeyName = function() return boundKey and boundKey.Name or nil end,
+		SetKeyByName = function(kName)
+			if typeof(kName) == "string" and kName ~= "" then
+				local ok, kc = pcall(function() return Enum.KeyCode[kName] end)
+				if ok and typeof(kc) == "EnumItem" then
+					bindSlot.SetKey(kc)
+					return
+				end
+			end
+			bindSlot.SetKey(nil)
+		end
+	}
+
 	pill.MouseButton1Click:Connect(function()
 		playClickSound()
 		setToggleState(not state, true)
@@ -1252,10 +1272,8 @@ local function addSlider(page, labelText, minVal, maxVal, increment, defaultVal,
 
 	local draggingSlider = false
 
-	local function setFromAlpha(alpha)
-		alpha = math.clamp(alpha, 0, 1)
-		local raw = minVal + (maxVal - minVal) * alpha
-		local stepped = math.floor((raw / increment) + 0.5) * increment
+	local function applyNumericValue(newVal)
+		local stepped = math.floor((newVal / increment) + 0.5) * increment
 		stepped = math.clamp(stepped, minVal, maxVal)
 		value = stepped
 		local ratio = (value - minVal) / math.max((maxVal - minVal), 1e-6)
@@ -1266,7 +1284,22 @@ local function addSlider(page, labelText, minVal, maxVal, increment, defaultVal,
 		end
 	end
 
-	setFromAlpha((value - minVal) / math.max((maxVal - minVal), 1e-6))
+	local function setFromAlpha(alpha)
+		alpha = math.clamp(alpha, 0, 1)
+		local raw = minVal + (maxVal - minVal) * alpha
+		applyNumericValue(raw)
+	end
+
+	sliderControllers[labelText] = {
+		GetValue = function() return value end,
+		SetValue = function(v)
+			if typeof(v) == "number" then
+				applyNumericValue(v)
+			end
+		end
+	}
+
+	applyNumericValue(value)
 
 	track.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1338,6 +1371,59 @@ local function addButton(page, labelText, btnText, callback)
 	return actionBtn
 end
 
+local function addTextInput(page, labelText, defaultText, placeholderText, callback)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 36)
+	row.BackgroundColor3 = ActiveTheme.Row
+	row.BorderSizePixel = 0
+	row.Parent = page
+	addCorner(row, 7)
+	addStroke(row, Color3.fromRGB(45, 55, 72), 1, 0.4)
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(0.48, -10, 1, 0)
+	lbl.Position = UDim2.new(0, 10, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = labelText
+	lbl.TextColor3 = Color3.fromRGB(226, 232, 240)
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 12
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = row
+
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(0.49, -6, 0, 24)
+	box.Position = UDim2.new(0.51, 0, 0.5, -12)
+	box.BackgroundColor3 = Color3.fromRGB(36, 42, 58)
+	box.Text = tostring(defaultText or "")
+	box.PlaceholderText = placeholderText or "Config name"
+	box.PlaceholderColor3 = Color3.fromRGB(148, 163, 184)
+	box.TextColor3 = Color3.fromRGB(248, 250, 252)
+	box.Font = Enum.Font.GothamBold
+	box.TextSize = 11
+	box.ClearTextOnFocus = false
+	box.Parent = row
+	addCorner(box, 6)
+	local boxStroke = addStroke(box, ActiveTheme.Accent, 1, 0.45)
+
+	table.insert(themedInputRows, {
+		Row = row,
+		Stroke = boxStroke
+	})
+
+	box.Focused:Connect(function()
+		playClickSound()
+	end)
+
+	box.FocusLost:Connect(function()
+		if callback then
+			callback(box.Text)
+		end
+	end)
+
+	return box
+end
+
 -- Tabs (Settings strictly at the very last)
 local CombatTab = createTab("Combat")
 local MoveTab = createTab("Movement")
@@ -1395,6 +1481,10 @@ addToggle(MoveTab, "Noclip", false, function(v)
 	end
 end)
 
+addToggle(MoveTab, "Shift Lock", false, function(v)
+	ShiftLock = v
+end)
+
 addToggle(VisualTab, "ESP", false, function(v)
 	ESP = v
 	if not ESP then
@@ -1435,6 +1525,8 @@ local function applyPanelSize(newWidth)
 end
 
 local panelColourBtnRef = nil
+local clickSoundBtnRef = nil
+local keybindBtnRef = nil
 
 local function applyPanelTheme(themeObj)
 	ActiveTheme = themeObj
@@ -1480,9 +1572,167 @@ local function applyPanelTheme(themeObj)
 		item.Row.BackgroundColor3 = ActiveTheme.Row
 		item.Button.BackgroundColor3 = ActiveTheme.Button
 	end
+	for _, item in ipairs(themedInputRows) do
+		item.Row.BackgroundColor3 = ActiveTheme.Row
+		item.Stroke.Color = ActiveTheme.Accent
+	end
 end
 
-local keybindBtnRef = nil
+-- Config System (Config Name + Saved Configs + Load Configs)
+local currentConfigName = "default"
+local savedConfigsStore = {}
+local savedConfigOrder = {}
+local cycleLoadIndex = 0
+local configNameBoxRef = nil
+local savedConfigsBtnRef = nil
+local loadConfigsBtnRef = nil
+
+local CONFIG_FOLDER = "DarkMoonHub_Configs"
+
+local function sanitizeConfigName(raw)
+	local cleaned = tostring(raw or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("[^%w_%-]", "_")
+	if cleaned == "" then
+		cleaned = "default"
+	end
+	return cleaned
+end
+
+local function refreshConfigButtonsText()
+	local count = #savedConfigOrder
+	if savedConfigsBtnRef and savedConfigsBtnRef.Parent then
+		savedConfigsBtnRef.Text = count > 0 and ("Save (" .. tostring(count) .. ")") or "Save Config"
+	end
+	if loadConfigsBtnRef and loadConfigsBtnRef.Parent then
+		if count == 0 then
+			loadConfigsBtnRef.Text = "No Configs"
+		else
+			loadConfigsBtnRef.Text = "Load (" .. tostring(count) .. ")"
+		end
+	end
+end
+
+local function persistConfigToDisk(cfgName, encodedJson)
+	if typeof(writefile) == "function" then
+		pcall(function()
+			if typeof(isfolder) == "function" and typeof(makefolder) == "function" then
+				if not isfolder(CONFIG_FOLDER) then
+					makefolder(CONFIG_FOLDER)
+				end
+				writefile(CONFIG_FOLDER .. "/" .. cfgName .. ".json", encodedJson)
+			else
+				writefile("DarkMoonHub_" .. cfgName .. ".json", encodedJson)
+			end
+		end)
+	end
+end
+
+local function loadConfigsFromDisk()
+	if typeof(listfiles) == "function" and typeof(readfile) == "function" and typeof(isfolder) == "function" then
+		pcall(function()
+			if isfolder(CONFIG_FOLDER) then
+				for _, filePath in ipairs(listfiles(CONFIG_FOLDER)) do
+					local fname = tostring(filePath):match("([^/\\]+)%.json$")
+					if fname and fname ~= "" then
+						local okRead, rawContent = pcall(readfile, filePath)
+						if okRead and typeof(rawContent) == "string" then
+							local okDecode, decoded = pcall(function()
+								return HttpService:JSONDecode(rawContent)
+							end)
+							if okDecode and typeof(decoded) == "table" then
+								if not savedConfigsStore[fname] then
+									table.insert(savedConfigOrder, fname)
+								end
+								savedConfigsStore[fname] = decoded
+							end
+						end
+					end
+				end
+			end
+		end)
+	end
+end
+
+local function buildConfigSnapshot()
+	local togglesSnap = {}
+	local bindsSnap = {}
+	for tName, ctrl in pairs(toggleControllers) do
+		togglesSnap[tName] = ctrl.GetState()
+		bindsSnap[tName] = ctrl.GetKeyName()
+	end
+
+	local slidersSnap = {}
+	for sName, ctrl in pairs(sliderControllers) do
+		slidersSnap[sName] = ctrl.GetValue()
+	end
+
+	return {
+		Name = currentConfigName,
+		ThemeIndex = currentThemeIndex,
+		ClickSoundIndex = currentClickSoundIndex,
+		UIKeybind = ToggleKeybind.Name,
+		Toggles = togglesSnap,
+		Keybinds = bindsSnap,
+		Sliders = slidersSnap
+	}
+end
+
+local function applyConfigSnapshot(cfg)
+	if typeof(cfg) ~= "table" then
+		return false
+	end
+
+	if typeof(cfg.ThemeIndex) == "number" and PanelThemes[cfg.ThemeIndex] then
+		currentThemeIndex = cfg.ThemeIndex
+		applyPanelTheme(PanelThemes[currentThemeIndex])
+	end
+
+	if typeof(cfg.ClickSoundIndex) == "number" and ClickSoundPresets[cfg.ClickSoundIndex] then
+		currentClickSoundIndex = cfg.ClickSoundIndex
+		ActiveClickSound = ClickSoundPresets[currentClickSoundIndex]
+		if clickSoundBtnRef and clickSoundBtnRef.Parent then
+			clickSoundBtnRef.Text = ActiveClickSound.Name
+		end
+	end
+
+	if typeof(cfg.UIKeybind) == "string" and cfg.UIKeybind ~= "" then
+		local okKey, kc = pcall(function() return Enum.KeyCode[cfg.UIKeybind] end)
+		if okKey and typeof(kc) == "EnumItem" and kc ~= Enum.KeyCode.Unknown then
+			ToggleKeybind = kc
+			if keybindBtnRef and keybindBtnRef.Parent then
+				keybindBtnRef.Text = ToggleKeybind.Name
+			end
+		end
+	end
+
+	if typeof(cfg.Sliders) == "table" then
+		for sName, sVal in pairs(cfg.Sliders) do
+			local ctrl = sliderControllers[sName]
+			if ctrl and typeof(sVal) == "number" then
+				ctrl.SetValue(sVal)
+			end
+		end
+	end
+
+	if typeof(cfg.Toggles) == "table" then
+		for tName, tVal in pairs(cfg.Toggles) do
+			local ctrl = toggleControllers[tName]
+			if ctrl and typeof(tVal) == "boolean" then
+				ctrl.SetState(tVal)
+			end
+		end
+	end
+
+	if typeof(cfg.Keybinds) == "table" then
+		for tName, kName in pairs(cfg.Keybinds) do
+			local ctrl = toggleControllers[tName]
+			if ctrl then
+				ctrl.SetKeyByName(kName)
+			end
+		end
+	end
+
+	return true
+end
 
 keybindBtnRef = addButton(SettingsTab, "UI Keybind", ToggleKeybind.Name, function(btn)
 	activeFeatureBindSlot = nil
@@ -1490,7 +1740,7 @@ keybindBtnRef = addButton(SettingsTab, "UI Keybind", ToggleKeybind.Name, functio
 	btn.Text = "Press key..."
 end)
 
-addButton(SettingsTab, "Click Sound", ActiveClickSound.Name, function(btn)
+clickSoundBtnRef = addButton(SettingsTab, "Click Sound", ActiveClickSound.Name, function(btn)
 	currentClickSoundIndex = (currentClickSoundIndex % #ClickSoundPresets) + 1
 	ActiveClickSound = ClickSoundPresets[currentClickSoundIndex]
 	btn.Text = ActiveClickSound.Name
@@ -1500,6 +1750,73 @@ end)
 panelColourBtnRef = addButton(SettingsTab, "Panel Colour", ActiveTheme.Name, function()
 	currentThemeIndex = (currentThemeIndex % #PanelThemes) + 1
 	applyPanelTheme(PanelThemes[currentThemeIndex])
+end)
+
+configNameBoxRef = addTextInput(SettingsTab, "Config Name", currentConfigName, "Enter name...", function(enteredText)
+	currentConfigName = sanitizeConfigName(enteredText)
+	configNameBoxRef.Text = currentConfigName
+end)
+
+savedConfigsBtnRef = addButton(SettingsTab, "Saved Configs", "Save Config", function(btn)
+	currentConfigName = sanitizeConfigName(configNameBoxRef and configNameBoxRef.Text or currentConfigName)
+	if configNameBoxRef and configNameBoxRef.Parent then
+		configNameBoxRef.Text = currentConfigName
+	end
+
+	local snap = buildConfigSnapshot()
+	if not savedConfigsStore[currentConfigName] then
+		table.insert(savedConfigOrder, currentConfigName)
+	end
+	savedConfigsStore[currentConfigName] = snap
+
+	local okEncode, jsonStr = pcall(function()
+		return HttpService:JSONEncode(snap)
+	end)
+	if okEncode and typeof(jsonStr) == "string" then
+		persistConfigToDisk(currentConfigName, jsonStr)
+	end
+
+	refreshConfigButtonsText()
+	btn.Text = "Saved: " .. currentConfigName
+	task.delay(1.3, function()
+		if btn and btn.Parent then
+			refreshConfigButtonsText()
+		end
+	end)
+end)
+
+loadConfigsBtnRef = addButton(SettingsTab, "Load Configs", "No Configs", function(btn)
+	local typedName = sanitizeConfigName(configNameBoxRef and configNameBoxRef.Text or currentConfigName)
+	currentConfigName = typedName
+
+	local targetCfg = savedConfigsStore[typedName]
+	local loadedName = typedName
+
+	if not targetCfg and #savedConfigOrder > 0 then
+		cycleLoadIndex = (cycleLoadIndex % #savedConfigOrder) + 1
+		loadedName = savedConfigOrder[cycleLoadIndex]
+		targetCfg = savedConfigsStore[loadedName]
+		currentConfigName = loadedName
+		if configNameBoxRef and configNameBoxRef.Parent then
+			configNameBoxRef.Text = loadedName
+		end
+	end
+
+	if targetCfg and applyConfigSnapshot(targetCfg) then
+		btn.Text = "Loaded: " .. loadedName
+		task.delay(1.3, function()
+			if btn and btn.Parent then
+				refreshConfigButtonsText()
+			end
+		end)
+	else
+		btn.Text = "Not Found"
+		task.delay(1.2, function()
+			if btn and btn.Parent then
+				refreshConfigButtonsText()
+			end
+		end)
+	end
 end)
 
 addToggle(SettingsTab, "Phone Eco Mode", false, function(v)
@@ -1523,6 +1840,9 @@ end)
 addSlider(SettingsTab, "Panel Size", 360, 560, 10, BaseWidth, function(v)
 	applyPanelSize(v)
 end)
+
+loadConfigsFromDisk()
+refreshConfigButtonsText()
 
 -- Moon Logo Toggle Button (Drag Support + Keybind)
 local function setWindowVisible(vis)
@@ -1702,13 +2022,16 @@ do
 			statsElapsed = 0
 		end
 
-		-- Cached Character Movement & Throttled Noclip
+		-- Cached Character Movement, Shift Lock & Throttled Noclip
 		if cachedChar and cachedChar.Parent == nil then
 			refreshLocalCharCache(LocalPlayer.Character)
 		end
 		if cachedChar then
 			if not cachedHum or cachedHum.Parent == nil then
 				cachedHum = cachedChar:FindFirstChildOfClass("Humanoid")
+			end
+			if not cachedRoot or cachedRoot.Parent == nil then
+				cachedRoot = cachedChar:FindFirstChild("HumanoidRootPart")
 			end
 			if cachedHum then
 				if cachedHum.WalkSpeed ~= SpeedValue then
@@ -1719,6 +2042,16 @@ do
 				end
 				if cachedHum.JumpPower ~= JumpValue then
 					cachedHum.JumpPower = JumpValue
+				end
+			end
+
+			if ShiftLock and cachedRoot and cachedRoot.Parent and not Aimbot then
+				local lookVec = Camera.CFrame.LookVector
+				local flatLook = Vector3.new(lookVec.X, 0, lookVec.Z)
+				if flatLook.Magnitude > 1e-4 then
+					local rootPos = cachedRoot.Position
+					local targetCFrame = CFrame.lookAt(rootPos, rootPos + flatLook.Unit)
+					cachedRoot.CFrame = cachedRoot.CFrame:Lerp(targetCFrame, math.clamp(dt * 18, 0, 1))
 				end
 			end
 
