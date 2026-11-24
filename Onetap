@@ -48,20 +48,21 @@ local CS2_White = Color3.fromRGB(255, 255, 255)
 local CS2_Green = Color3.fromRGB(34, 197, 94)
 local CS2_Outline = Color3.fromRGB(10, 12, 18)
 
-local SmoothClickSound = {
-	Name = "Smooth Click",
-	SoundId = "rbxassetid://4307186075",
-	Volume = 0.22,
-	PlaybackSpeed = 0.94
-}
+local lastSmoothClickClock = 0
 
 local function playClickSound()
+	local now = os.clock()
+	if (now - lastSmoothClickClock) < 0.045 then
+		return
+	end
+	lastSmoothClickClock = now
+
 	pcall(function()
 		local sound = Instance.new("Sound")
 		sound.Name = "DarkMoonSmoothClick"
-		sound.SoundId = SmoothClickSound.SoundId
-		sound.Volume = SmoothClickSound.Volume
-		sound.PlaybackSpeed = SmoothClickSound.PlaybackSpeed
+		sound.SoundId = "rbxassetid://4307186075"
+		sound.Volume = 0.18
+		sound.PlaybackSpeed = 0.92
 		sound.Parent = SoundService
 		sound:Play()
 		sound.Ended:Connect(function()
@@ -77,81 +78,63 @@ local function playClickSound()
 	end)
 end
 
-local function buildThemeFromAccent(name, accentColor)
-	local r = math.floor((accentColor.R * 255) + 0.5)
-	local g = math.floor((accentColor.G * 255) + 0.5)
-	local b = math.floor((accentColor.B * 255) + 0.5)
-
-	local buttonColor = Color3.fromRGB(
-		math.clamp(math.floor(r * 0.85), 0, 255),
-		math.clamp(math.floor(g * 0.85), 0, 255),
-		math.clamp(math.floor(b * 0.85), 0, 255)
-	)
-	local fillColor = Color3.fromRGB(
-		math.clamp(math.floor(r + (255 - r) * 0.28), 0, 255),
-		math.clamp(math.floor(g + (255 - g) * 0.28), 0, 255),
-		math.clamp(math.floor(b + (255 - b) * 0.28), 0, 255)
-	)
-
-	return {
-		Name = name,
-		Accent = Color3.fromRGB(r, g, b),
-		Button = buttonColor,
-		Fill = fillColor,
-		GradStart = Color3.fromRGB(
-			math.clamp(16 + math.floor(r * 0.06), 12, 42),
-			math.clamp(18 + math.floor(g * 0.06), 12, 42),
-			math.clamp(26 + math.floor(b * 0.06), 16, 48)
-		),
-		GradEnd = Color3.fromRGB(
-			math.clamp(10 + math.floor(r * 0.03), 8, 26),
-			math.clamp(11 + math.floor(g * 0.03), 8, 26),
-			math.clamp(16 + math.floor(b * 0.03), 10, 30)
-		),
-		Header = Color3.fromRGB(
-			math.clamp(18 + math.floor(r * 0.07), 16, 48),
-			math.clamp(21 + math.floor(g * 0.07), 16, 48),
-			math.clamp(30 + math.floor(b * 0.07), 20, 54)
-		),
-		Surface = Color3.fromRGB(
-			math.clamp(14 + math.floor(r * 0.045), 12, 34),
-			math.clamp(16 + math.floor(g * 0.045), 12, 34),
-			math.clamp(23 + math.floor(b * 0.045), 15, 40)
-		),
-		Row = Color3.fromRGB(
-			math.clamp(20 + math.floor(r * 0.06), 18, 44),
-			math.clamp(23 + math.floor(g * 0.06), 18, 44),
-			math.clamp(32 + math.floor(b * 0.06), 22, 50)
-		)
+local PanelThemes = {
+	{
+		Name = "Dark Moon",
+		Accent = Color3.fromRGB(99, 102, 241),
+		Button = Color3.fromRGB(79, 70, 229),
+		Fill = Color3.fromRGB(129, 140, 248),
+		GradStart = Color3.fromRGB(22, 25, 36),
+		GradEnd = Color3.fromRGB(12, 14, 20),
+		Header = Color3.fromRGB(24, 28, 40),
+		Surface = Color3.fromRGB(19, 22, 31),
+		Row = Color3.fromRGB(26, 30, 42)
+	},
+	{
+		Name = "Crimson",
+		Accent = Color3.fromRGB(239, 68, 68),
+		Button = Color3.fromRGB(220, 38, 38),
+		Fill = Color3.fromRGB(248, 113, 113),
+		GradStart = Color3.fromRGB(32, 18, 22),
+		GradEnd = Color3.fromRGB(16, 10, 13),
+		Header = Color3.fromRGB(38, 20, 25),
+		Surface = Color3.fromRGB(26, 16, 20),
+		Row = Color3.fromRGB(36, 21, 26)
+	},
+	{
+		Name = "Emerald",
+		Accent = Color3.fromRGB(16, 185, 129),
+		Button = Color3.fromRGB(5, 150, 105),
+		Fill = Color3.fromRGB(52, 211, 153),
+		GradStart = Color3.fromRGB(16, 30, 26),
+		GradEnd = Color3.fromRGB(10, 17, 15),
+		Header = Color3.fromRGB(18, 35, 30),
+		Surface = Color3.fromRGB(14, 25, 22),
+		Row = Color3.fromRGB(20, 34, 29)
+	},
+	{
+		Name = "Violet",
+		Accent = Color3.fromRGB(168, 85, 247),
+		Button = Color3.fromRGB(147, 51, 234),
+		Fill = Color3.fromRGB(192, 132, 252),
+		GradStart = Color3.fromRGB(28, 18, 38),
+		GradEnd = Color3.fromRGB(14, 10, 20),
+		Header = Color3.fromRGB(34, 21, 45),
+		Surface = Color3.fromRGB(23, 16, 31),
+		Row = Color3.fromRGB(31, 21, 41)
+	},
+	{
+		Name = "Cyan",
+		Accent = Color3.fromRGB(6, 182, 212),
+		Button = Color3.fromRGB(8, 145, 178),
+		Fill = Color3.fromRGB(34, 211, 238),
+		GradStart = Color3.fromRGB(15, 28, 34),
+		GradEnd = Color3.fromRGB(9, 16, 20),
+		Header = Color3.fromRGB(18, 34, 41),
+		Surface = Color3.fromRGB(14, 24, 29),
+		Row = Color3.fromRGB(19, 32, 39)
 	}
-end
-
-local NamedColorPalette = {
-	{Name = "Dark Moon", Color = Color3.fromRGB(99, 102, 241)},
-	{Name = "Crimson", Color = Color3.fromRGB(239, 68, 68)},
-	{Name = "Red", Color = Color3.fromRGB(220, 38, 38)},
-	{Name = "Emerald", Color = Color3.fromRGB(16, 185, 129)},
-	{Name = "Green", Color = Color3.fromRGB(34, 197, 94)},
-	{Name = "Violet", Color = Color3.fromRGB(168, 85, 247)},
-	{Name = "Purple", Color = Color3.fromRGB(147, 51, 234)},
-	{Name = "Cyan", Color = Color3.fromRGB(6, 182, 212)},
-	{Name = Color3.fromRGB(59, 130, 246), Name = "Blue"},
-	{Name = "Indigo", Color = Color3.fromRGB(79, 70, 229)},
-	{Name = "Pink", Color = Color3.fromRGB(236, 72, 153)},
-	{Name = "Magenta", Color = Color3.fromRGB(217, 70, 239)},
-	{Name = "Orange", Color = Color3.fromRGB(249, 115, 22)},
-	{Name = "Coral", Color = Color3.fromRGB(251, 113, 133)},
-	{Name = "Gold", Color = Color3.fromRGB(234, 179, 8)},
-	{Name = "Yellow", Color = Color3.fromRGB(250, 204, 21)},
-	{Name = "Lime", Color = Color3.fromRGB(132, 204, 22)},
-	{Name = "Teal", Color = Color3.fromRGB(20, 184, 166)},
-	{Name = "White", Color = Color3.fromRGB(226, 232, 240)}
 }
-
-local PanelThemes = {}
-for idx, entry in ipairs(NamedColorPalette) do
-	PanelThemes[idx] = buildThemeFromAccent(entry.Name, entry.Color)
-end
 
 local currentThemeIndex = 1
 local ActiveTheme = PanelThemes[currentThemeIndex]
@@ -858,7 +841,7 @@ ToggleBtn.Text = ""
 ToggleBtn.AutoButtonColor = false
 ToggleBtn.Parent = MoonToggleHolder
 
--- PC & Mobile Responsive Modern Window
+-- PC & Mobile Responsive Window
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
 MainFrame.Size = UDim2.new(0, BaseWidth, 0, BaseHeight)
@@ -869,10 +852,6 @@ MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 addCorner(MainFrame, 12)
 addStroke(MainFrame, Color3.fromRGB(51, 65, 85), 1.2, 0.2)
-
-local MainUIScale = Instance.new("UIScale")
-MainUIScale.Scale = 1
-MainUIScale.Parent = MainFrame
 
 local MainGrad = Instance.new("UIGradient")
 MainGrad.Rotation = 135
@@ -1563,32 +1542,27 @@ addToggle(VisualTab, "HD Graphics", false, function(v)
 	setHDGraphics(v)
 end)
 
-local panelColourBtnRef = nil
-local colourNameBoxRef = nil
-local keybindBtnRef = nil
-local lastViewportSize = nil
-
 local function applyPanelSize(newWidth)
-	local desiredWidth = math.clamp(newWidth, 360, 820)
+	local requestedWidth = math.clamp(tonumber(newWidth) or BaseWidth, 360, 920)
 	local cam = workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-	lastViewportSize = vp
+	local maxFitWidth = math.max(320, vp.X - 36)
+	local maxFitHeight = math.max(220, vp.Y - 36)
 
-	local maxAllowedWidth = math.max(320, vp.X - 32)
-	local maxAllowedHeight = math.max(220, vp.Y - 32)
-
-	local finalWidth = math.min(desiredWidth, maxAllowedWidth)
-	local finalHeight = math.floor((finalWidth * AspectRatio) + 0.5)
-	if finalHeight > maxAllowedHeight then
-		finalHeight = maxAllowedHeight
-		finalWidth = math.max(320, math.floor((finalHeight / AspectRatio) + 0.5))
+	local fittedWidth = math.min(requestedWidth, maxFitWidth)
+	local fittedHeight = math.floor((fittedWidth * AspectRatio) + 0.5)
+	if fittedHeight > maxFitHeight then
+		fittedHeight = maxFitHeight
+		fittedWidth = math.floor((fittedHeight / AspectRatio) + 0.5)
 	end
 
-	PanelWidth = finalWidth
-	MainUIScale.Scale = math.clamp(finalWidth / BaseWidth, 0.85, 1.45)
-	MainFrame.Size = UDim2.new(0, finalWidth, 0, finalHeight)
-	MainFrame.Position = UDim2.new(0.5, -finalWidth / 2, 0.5, -finalHeight / 2)
+	PanelWidth = fittedWidth
+	MainFrame.Size = UDim2.new(0, fittedWidth, 0, fittedHeight)
+	MainFrame.Position = UDim2.new(0.5, -fittedWidth / 2, 0.5, -fittedHeight / 2)
 end
+
+local panelColourBtnRef = nil
+local keybindBtnRef = nil
 
 local function applyPanelTheme(themeObj)
 	ActiveTheme = themeObj
@@ -1610,9 +1584,6 @@ local function applyPanelTheme(themeObj)
 
 	if panelColourBtnRef and panelColourBtnRef.Parent then
 		panelColourBtnRef.Text = ActiveTheme.Name
-	end
-	if colourNameBoxRef and colourNameBoxRef.Parent and colourNameBoxRef.Text ~= ActiveTheme.Name then
-		colourNameBoxRef.Text = ActiveTheme.Name
 	end
 
 	for _, page in pairs(TabPages) do
@@ -1641,36 +1612,6 @@ local function applyPanelTheme(themeObj)
 		item.Row.BackgroundColor3 = ActiveTheme.Row
 		item.Stroke.Color = ActiveTheme.Accent
 	end
-end
-
-local function selectColourByName(rawName)
-	local trimmed = tostring(rawName or ""):gsub("^%s+", ""):gsub("%s+$", "")
-	if trimmed == "" then
-		return false
-	end
-	local lower = string.lower(trimmed)
-
-	for idx, theme in ipairs(PanelThemes) do
-		if string.lower(theme.Name) == lower then
-			currentThemeIndex = idx
-			applyPanelTheme(theme)
-			return true
-		end
-	end
-
-	local okBrick, brick = pcall(function()
-		return BrickColor.new(trimmed)
-	end)
-	if okBrick and brick and (brick.Name ~= "Medium stone grey" or lower == "grey" or lower == "gray") then
-		local displayName = trimmed:sub(1, 1):upper() .. trimmed:sub(2)
-		local customTheme = buildThemeFromAccent(displayName, brick.Color)
-		table.insert(PanelThemes, customTheme)
-		currentThemeIndex = #PanelThemes
-		applyPanelTheme(customTheme)
-		return true
-	end
-
-	return false
 end
 
 -- Config System (Config Name + Saved Configs + Load Configs)
@@ -1763,7 +1704,6 @@ local function buildConfigSnapshot()
 	return {
 		Name = currentConfigName,
 		ThemeIndex = currentThemeIndex,
-		ThemeName = ActiveTheme.Name,
 		UIKeybind = ToggleKeybind.Name,
 		Toggles = togglesSnap,
 		Keybinds = bindsSnap,
@@ -1776,9 +1716,7 @@ local function applyConfigSnapshot(cfg)
 		return false
 	end
 
-	if typeof(cfg.ThemeName) == "string" and selectColourByName(cfg.ThemeName) then
-		-- Applied by name
-	elseif typeof(cfg.ThemeIndex) == "number" and PanelThemes[cfg.ThemeIndex] then
+	if typeof(cfg.ThemeIndex) == "number" and PanelThemes[cfg.ThemeIndex] then
 		currentThemeIndex = cfg.ThemeIndex
 		applyPanelTheme(PanelThemes[currentThemeIndex])
 	end
@@ -1832,12 +1770,6 @@ end)
 panelColourBtnRef = addButton(SettingsTab, "Panel Colour", ActiveTheme.Name, function()
 	currentThemeIndex = (currentThemeIndex % #PanelThemes) + 1
 	applyPanelTheme(PanelThemes[currentThemeIndex])
-end)
-
-colourNameBoxRef = addTextInput(SettingsTab, "Colour Name", ActiveTheme.Name, "Crimson, Blue, Pink...", function(enteredName)
-	if not selectColourByName(enteredName) then
-		colourNameBoxRef.Text = ActiveTheme.Name
-	end
 end)
 
 configNameBoxRef = addTextInput(SettingsTab, "Config Name", currentConfigName, "Enter name...", function(enteredText)
@@ -1925,11 +1857,16 @@ addButton(SettingsTab, "Server Hop", "Join Server", function(btn)
 	end)
 end)
 
-addSlider(SettingsTab, "Panel Size", 360, 820, 10, BaseWidth, function(v)
+addSlider(SettingsTab, "Panel Size", 360, 920, 10, BaseWidth, function(v)
 	applyPanelSize(v)
 end)
 
-applyPanelSize(BaseWidth)
+if Camera then
+	Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		applyPanelSize(PanelWidth)
+	end)
+end
+
 loadConfigsFromDisk()
 refreshConfigButtonsText()
 
@@ -2098,10 +2035,6 @@ do
 		Camera = workspace.CurrentCamera
 		if not Camera then
 			return
-		end
-
-		if not lastViewportSize or Camera.ViewportSize ~= lastViewportSize then
-			applyPanelSize(PanelWidth)
 		end
 
 		-- Throttled Stats Bar Update (reduces mobile UI overhead)
