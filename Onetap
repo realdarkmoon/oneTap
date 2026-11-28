@@ -25,12 +25,14 @@ local ESP = false
 local SkeletonESP = false
 local Tracers = false
 local Crosshair = false
+local CustomBackground = false
 local HDGraphics = false
-local CustomBG = false
 local RainbowFOV = false
 local PhoneEcoMode = false
 local BulletSpeed = 2500
 local Prediction = true
+
+local CustomBackgroundUrl = "https://raw.githubusercontent.com/realdarkmoon/Mm2/refs/heads/main/README.md"
 
 local ToggleKeybind = Enum.KeyCode.RightShift
 local listeningForMainKeybind = false
@@ -152,6 +154,92 @@ if not parentOk and LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") then
 	ScreenGui.Parent = LocalPlayer.PlayerGui
 end
 
+-- Full-Screen Custom Background Layer (Behind Main Window, Moon Toggle & Notifications)
+local FullScreenBg = Instance.new("ImageLabel")
+FullScreenBg.Name = "DarkMoonFullScreenBackground"
+FullScreenBg.Size = UDim2.new(1, 0, 1, 0)
+FullScreenBg.Position = UDim2.new(0, 0, 0, 0)
+FullScreenBg.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
+FullScreenBg.BackgroundTransparency = 0.25
+FullScreenBg.BorderSizePixel = 0
+FullScreenBg.ScaleType = Enum.ScaleType.Crop
+FullScreenBg.Image = ""
+FullScreenBg.Visible = false
+FullScreenBg.ZIndex = 1
+FullScreenBg.Parent = ScreenGui
+
+local resolvedBgAsset = nil
+
+local function normalizeGitHubImageUrl(url)
+	local clean = tostring(url or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if clean == "" then
+		return ""
+	end
+	if clean:match("^rbxassetid://") or clean:match("^rbxasset://") or clean:match("^http://") or clean:match("^https://") then
+		if clean:match("^https?://github%.com/[^/]+/[^/]+/blob/(.+)$") then
+			local owner, repo, rest = clean:match("^https?://github%.com/([^/]+)/([^/]+)/blob/(.+)$")
+			if owner and repo and rest then
+				return "https://raw.githubusercontent.com/" .. owner .. "/" .. repo .. "/" .. rest
+			end
+		end
+		return clean
+	end
+	return "rbxassetid://" .. clean
+end
+
+local function resolveBackgroundImage(url)
+	local normalized = normalizeGitHubImageUrl(url)
+	if normalized == "" then
+		return nil
+	end
+	if normalized:match("^rbxassetid://") or normalized:match("^rbxasset://") then
+		return normalized
+	end
+	if typeof(game.HttpGet) == "function" and typeof(writefile) == "function" and typeof(getcustomasset) == "function" then
+		local ok, rawBytes = pcall(function()
+			return game:HttpGet(normalized)
+		end)
+		if ok and typeof(rawBytes) == "string" and #rawBytes > 0 then
+			local filePath = "DarkMoon_CustomBackground.img"
+			local wrote = pcall(function()
+				writefile(filePath, rawBytes)
+			end)
+			if wrote then
+				local assetOk, assetId = pcall(function()
+					return getcustomasset(filePath)
+				end)
+				if assetOk and typeof(assetId) == "string" and assetId ~= "" then
+					return assetId
+				end
+			end
+		end
+	end
+	return normalized
+end
+
+local function applyCustomBackground(enabled)
+	CustomBackground = enabled and true or false
+	if not CustomBackground then
+		FullScreenBg.Visible = false
+		return
+	end
+	if PhoneEcoMode then
+		FullScreenBg.Visible = false
+		return
+	end
+	task.spawn(function()
+		if not resolvedBgAsset then
+			resolvedBgAsset = resolveBackgroundImage(CustomBackgroundUrl)
+		end
+		if CustomBackground and not PhoneEcoMode and resolvedBgAsset then
+			FullScreenBg.Image = resolvedBgAsset
+			FullScreenBg.Visible = true
+		elseif CustomBackground then
+			FullScreenBg.Visible = false
+		end
+	end)
+end
+
 local function addCorner(inst, radius)
 	local c = Instance.new("UICorner")
 	c.CornerRadius = UDim.new(0, radius)
@@ -167,122 +255,6 @@ local function addStroke(inst, color, thickness, transparency)
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	s.Parent = inst
 	return s
-end
-
--- Full-Screen Custom Background Layer
-local FullScreenBG = Instance.new("ImageLabel")
-FullScreenBG.Name = "DarkMoonFullScreenBG"
-FullScreenBG.Size = UDim2.fromScale(1, 1)
-FullScreenBG.Position = UDim2.fromScale(0, 0)
-FullScreenBG.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
-FullScreenBG.BackgroundTransparency = 1
-FullScreenBG.Image = ""
-FullScreenBG.ScaleType = Enum.ScaleType.Crop
-FullScreenBG.Visible = false
-FullScreenBG.ZIndex = -10
-FullScreenBG.Parent = ScreenGui
-
-local FullScreenBGDim = Instance.new("Frame")
-FullScreenBGDim.Name = "DarkMoonBGDim"
-FullScreenBGDim.Size = UDim2.fromScale(1, 1)
-FullScreenBGDim.Position = UDim2.fromScale(0, 0)
-FullScreenBGDim.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
-FullScreenBGDim.BackgroundTransparency = 0.42
-FullScreenBGDim.BorderSizePixel = 0
-FullScreenBGDim.ZIndex = -9
-FullScreenBGDim.Parent = FullScreenBG
-
-local customBgSourceInput = ""
-local resolvedBgAsset = ""
-
-local function extractAssetString(val)
-	if typeof(val) == "string" then
-		local trimmed = val:match("^%s*(.-)%s*$")
-		if trimmed == "" then
-			return ""
-		end
-		if trimmed:match("^rbxassetid://%d+") or trimmed:match("^rbxasset://") or trimmed:match("^http[s]?://") then
-			return trimmed
-		end
-		local numericId = trimmed:match("^(%d+)$")
-		if numericId then
-			return "rbxassetid://" .. numericId
-		end
-		local embeddedAsset = trimmed:match("(rbxassetid://%d+)")
-		if embeddedAsset then
-			return embeddedAsset
-		end
-		local embeddedUrl = trimmed:match("(https?://[%w%-%._~:/?#%[%]@!$&'%(%)%*%+,;=]+)")
-		if embeddedUrl then
-			return embeddedUrl
-		end
-	elseif typeof(val) == "table" then
-		for _, k in ipairs({"Image", "Background", "BackgroundImage", "ImageId", "Url", "AssetId", "Texture"}) do
-			if val[k] then
-				local found = extractAssetString(val[k])
-				if found ~= "" then
-					return found
-				end
-			end
-		end
-		if val[1] then
-			return extractAssetString(val[1])
-		end
-	end
-	return ""
-end
-
-local function resolveBackgroundSource(rawSource)
-	local candidate = extractAssetString(rawSource)
-	if candidate == "" and typeof(rawSource) == "string" and rawSource:match("%S") then
-		if typeof(loadstring) == "function" then
-			local okCompile, fn = pcall(loadstring, rawSource)
-			if okCompile and typeof(fn) == "function" then
-				local okRun, res = pcall(fn)
-				if okRun and res ~= nil then
-					candidate = extractAssetString(res)
-				end
-			end
-		end
-	end
-
-	if candidate == "" then
-		return nil, "Enter a valid image URL or asset ID"
-	end
-
-	if candidate:match("^http[s]?://") then
-		if typeof(game.HttpGet) == "function" and typeof(writefile) == "function" and typeof(getcustomasset) == "function" then
-			local okGet, bytes = pcall(function()
-				return game:HttpGet(candidate)
-			end)
-			if okGet and typeof(bytes) == "string" and #bytes > 0 then
-				local ext = candidate:match("%.([%w]+)[%?&#]?.*$")
-				if not ext or #ext > 5 then
-					ext = "png"
-				end
-				local fileName = "DarkMoon_CustomBG." .. string.lower(ext)
-				local okWrite = pcall(writefile, fileName, bytes)
-				if okWrite then
-					local okAsset, assetUri = pcall(getcustomasset, fileName)
-					if okAsset and typeof(assetUri) == "string" and assetUri ~= "" then
-						return assetUri, "Loaded custom image"
-					end
-				end
-			end
-		end
-		return candidate, "Applied image URL"
-	end
-
-	return candidate, "Applied background asset"
-end
-
-local function syncCustomBackgroundState()
-	if CustomBG and resolvedBgAsset ~= "" then
-		FullScreenBG.Image = resolvedBgAsset
-		FullScreenBG.Visible = true
-	else
-		FullScreenBG.Visible = false
-	end
 end
 
 -- Notify Loader System
@@ -1047,23 +1019,6 @@ local function buildCharacterBones(char)
 	return pairsList
 end
 
-local function addCorner(inst, radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	c.Parent = inst
-	return c
-end
-
-local function addStroke(inst, color, thickness, transparency)
-	local s = Instance.new("UIStroke")
-	s.Color = color
-	s.Thickness = thickness or 1
-	s.Transparency = transparency or 0
-	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	s.Parent = inst
-	return s
-end
-
 -- Clean Moon Logo Toggle Button (No Side Black Line + Drag Support)
 local MoonToggleHolder = Instance.new("Frame")
 MoonToggleHolder.Name = "MoonLogoToggle"
@@ -1072,6 +1027,7 @@ MoonToggleHolder.Position = UDim2.new(0, 16, 0, 16)
 MoonToggleHolder.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
 MoonToggleHolder.BorderSizePixel = 0
 MoonToggleHolder.Active = true
+MoonToggleHolder.ZIndex = 20
 MoonToggleHolder.Parent = ScreenGui
 addCorner(MoonToggleHolder, 999)
 
@@ -1083,6 +1039,7 @@ MoonDisc.Size = UDim2.new(0, 36, 0, 36)
 MoonDisc.Position = UDim2.new(0.5, -18, 0.5, -18)
 MoonDisc.BackgroundColor3 = Color3.fromRGB(238, 241, 248)
 MoonDisc.BorderSizePixel = 0
+MoonDisc.ZIndex = 21
 MoonDisc.Parent = MoonToggleHolder
 addCorner(MoonDisc, 999)
 
@@ -1108,6 +1065,7 @@ for idx, cInfo in ipairs(craterData) do
 	crater.BackgroundColor3 = Color3.fromRGB(145, 154, 176)
 	crater.BackgroundTransparency = cInfo.tr
 	crater.BorderSizePixel = 0
+	crater.ZIndex = 22
 	crater.Parent = MoonDisc
 	addCorner(crater, 999)
 end
@@ -1118,6 +1076,7 @@ ToggleBtn.Size = UDim2.new(1, 0, 1, 0)
 ToggleBtn.BackgroundTransparency = 1
 ToggleBtn.Text = ""
 ToggleBtn.AutoButtonColor = false
+ToggleBtn.ZIndex = 23
 ToggleBtn.Parent = MoonToggleHolder
 
 -- PC & Mobile Responsive Window
@@ -1128,6 +1087,7 @@ MainFrame.Position = UDim2.new(0.5, -BaseWidth / 2, 0.5, -BaseHeight / 2)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
+MainFrame.ZIndex = 10
 MainFrame.Parent = ScreenGui
 addCorner(MainFrame, 12)
 addStroke(MainFrame, Color3.fromRGB(51, 65, 85), 1.2, 0.2)
@@ -1146,6 +1106,7 @@ Header.Name = "Header"
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = ActiveTheme.Header
 Header.BorderSizePixel = 0
+Header.ZIndex = 11
 Header.Parent = MainFrame
 addCorner(Header, 12)
 
@@ -1154,6 +1115,7 @@ HeaderFix.Size = UDim2.new(1, 0, 0, 10)
 HeaderFix.Position = UDim2.new(0, 0, 1, -10)
 HeaderFix.BackgroundColor3 = ActiveTheme.Header
 HeaderFix.BorderSizePixel = 0
+HeaderFix.ZIndex = 11
 HeaderFix.Parent = Header
 
 local AccentDot = Instance.new("Frame")
@@ -1161,6 +1123,7 @@ AccentDot.Size = UDim2.new(0, 7, 0, 7)
 AccentDot.Position = UDim2.new(0, 14, 0.5, -3.5)
 AccentDot.BackgroundColor3 = ActiveTheme.Accent
 AccentDot.BorderSizePixel = 0
+AccentDot.ZIndex = 12
 AccentDot.Parent = Header
 addCorner(AccentDot, 99)
 
@@ -1173,6 +1136,7 @@ TitleText.TextColor3 = Color3.fromRGB(248, 250, 252)
 TitleText.Font = Enum.Font.GothamBlack
 TitleText.TextSize = 14
 TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.ZIndex = 12
 TitleText.Parent = Header
 
 local SubText = Instance.new("TextLabel")
@@ -1184,6 +1148,7 @@ SubText.TextColor3 = Color3.fromRGB(148, 163, 184)
 SubText.Font = Enum.Font.GothamBold
 SubText.TextSize = 11
 SubText.TextXAlignment = Enum.TextXAlignment.Right
+SubText.ZIndex = 12
 SubText.Parent = Header
 
 -- Top Info Bar (Ping / FPS / Active Players / Discord gg)
@@ -1193,6 +1158,7 @@ TopInfoBar.Size = UDim2.new(1, -16, 0, 26)
 TopInfoBar.Position = UDim2.new(0, 8, 0, 42)
 TopInfoBar.BackgroundColor3 = ActiveTheme.Surface
 TopInfoBar.BorderSizePixel = 0
+TopInfoBar.ZIndex = 11
 TopInfoBar.Parent = MainFrame
 addCorner(TopInfoBar, 8)
 addStroke(TopInfoBar, Color3.fromRGB(45, 55, 72), 1, 0.35)
@@ -1207,6 +1173,7 @@ StatsLabel.TextColor3 = Color3.fromRGB(203, 213, 225)
 StatsLabel.Font = Enum.Font.GothamBold
 StatsLabel.TextSize = 10
 StatsLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatsLabel.ZIndex = 12
 StatsLabel.Parent = TopInfoBar
 
 local DiscordBtn = Instance.new("TextButton")
@@ -1219,6 +1186,7 @@ DiscordBtn.TextColor3 = Color3.fromRGB(248, 250, 252)
 DiscordBtn.Font = Enum.Font.GothamBold
 DiscordBtn.TextSize = 10
 DiscordBtn.AutoButtonColor = false
+DiscordBtn.ZIndex = 12
 DiscordBtn.Parent = TopInfoBar
 addCorner(DiscordBtn, 6)
 
@@ -1246,6 +1214,7 @@ Sidebar.Size = UDim2.new(0, 112, 1, -80)
 Sidebar.Position = UDim2.new(0, 8, 0, 72)
 Sidebar.BackgroundColor3 = ActiveTheme.Surface
 Sidebar.BorderSizePixel = 0
+Sidebar.ZIndex = 11
 Sidebar.Parent = MainFrame
 addCorner(Sidebar, 9)
 addStroke(Sidebar, Color3.fromRGB(36, 43, 61), 1, 0.25)
@@ -1269,6 +1238,7 @@ ContentArea.Size = UDim2.new(1, -132, 1, -80)
 ContentArea.Position = UDim2.new(0, 124, 0, 72)
 ContentArea.BackgroundColor3 = ActiveTheme.Surface
 ContentArea.BorderSizePixel = 0
+ContentArea.ZIndex = 11
 ContentArea.Parent = MainFrame
 addCorner(ContentArea, 9)
 addStroke(ContentArea, Color3.fromRGB(36, 43, 61), 1, 0.25)
@@ -1297,6 +1267,7 @@ local function createTab(name)
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = 12
 	btn.AutoButtonColor = false
+	btn.ZIndex = 12
 	btn.Parent = Sidebar
 	addCorner(btn, 7)
 
@@ -1310,6 +1281,7 @@ local function createTab(name)
 	page.CanvasSize = UDim2.new(0, 0, 0, 0)
 	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	page.Visible = false
+	page.ZIndex = 12
 	page.Parent = ContentArea
 
 	local layout = Instance.new("UIListLayout")
@@ -1356,6 +1328,7 @@ local function addToggle(page, labelText, defaultVal, callback)
 	row.Size = UDim2.new(1, 0, 0, 34)
 	row.BackgroundColor3 = ActiveTheme.Row
 	row.BorderSizePixel = 0
+	row.ZIndex = 13
 	row.Parent = page
 	addCorner(row, 7)
 	addStroke(row, Color3.fromRGB(45, 55, 72), 1, 0.4)
@@ -1369,6 +1342,7 @@ local function addToggle(page, labelText, defaultVal, callback)
 	lbl.Font = Enum.Font.GothamBold
 	lbl.TextSize = 12
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.ZIndex = 14
 	lbl.Parent = row
 
 	local keyBtn = Instance.new("TextButton")
@@ -1381,6 +1355,7 @@ local function addToggle(page, labelText, defaultVal, callback)
 	keyBtn.Font = Enum.Font.GothamBold
 	keyBtn.TextSize = 10
 	keyBtn.AutoButtonColor = false
+	keyBtn.ZIndex = 14
 	keyBtn.Parent = row
 	addCorner(keyBtn, 5)
 	addStroke(keyBtn, Color3.fromRGB(71, 85, 105), 1, 0.45)
@@ -1391,6 +1366,7 @@ local function addToggle(page, labelText, defaultVal, callback)
 	pill.BackgroundColor3 = state and ActiveTheme.Accent or Color3.fromRGB(51, 65, 85)
 	pill.Text = ""
 	pill.AutoButtonColor = false
+	pill.ZIndex = 14
 	pill.Parent = row
 	addCorner(pill, 99)
 
@@ -1399,6 +1375,7 @@ local function addToggle(page, labelText, defaultVal, callback)
 	knob.Position = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
 	knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	knob.BorderSizePixel = 0
+	knob.ZIndex = 15
 	knob.Parent = pill
 	addCorner(knob, 99)
 
@@ -1527,6 +1504,7 @@ local function addSlider(page, labelText, minVal, maxVal, increment, defaultVal,
 	frame.Size = UDim2.new(1, 0, 0, 44)
 	frame.BackgroundColor3 = ActiveTheme.Row
 	frame.BorderSizePixel = 0
+	frame.ZIndex = 13
 	frame.Parent = page
 	addCorner(frame, 7)
 	addStroke(frame, Color3.fromRGB(45, 55, 72), 1, 0.4)
@@ -1540,6 +1518,7 @@ local function addSlider(page, labelText, minVal, maxVal, increment, defaultVal,
 	title.Font = Enum.Font.GothamBold
 	title.TextSize = 12
 	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.ZIndex = 14
 	title.Parent = frame
 
 	local valLabel = Instance.new("TextLabel")
@@ -1551,6 +1530,7 @@ local function addSlider(page, labelText, minVal, maxVal, increment, defaultVal,
 	valLabel.Font = Enum.Font.GothamBlack
 	valLabel.TextSize = 12
 	valLabel.TextXAlignment = Enum.TextXAlignment.Right
+	valLabel.ZIndex = 14
 	valLabel.Parent = frame
 
 	local track = Instance.new("Frame")
@@ -1558,6 +1538,7 @@ local function addSlider(page, labelText, minVal, maxVal, increment, defaultVal,
 	track.Position = UDim2.new(0, 10, 0, 29)
 	track.BackgroundColor3 = Color3.fromRGB(51, 65, 85)
 	track.BorderSizePixel = 0
+	track.ZIndex = 14
 	track.Parent = frame
 	addCorner(track, 99)
 
@@ -1565,6 +1546,7 @@ local function addSlider(page, labelText, minVal, maxVal, increment, defaultVal,
 	fill.Size = UDim2.new(0, 0, 1, 0)
 	fill.BackgroundColor3 = ActiveTheme.Accent
 	fill.BorderSizePixel = 0
+	fill.ZIndex = 15
 	fill.Parent = track
 	addCorner(fill, 99)
 
@@ -1633,6 +1615,7 @@ local function addButton(page, labelText, btnText, callback)
 	row.Size = UDim2.new(1, 0, 0, 36)
 	row.BackgroundColor3 = ActiveTheme.Row
 	row.BorderSizePixel = 0
+	row.ZIndex = 13
 	row.Parent = page
 	addCorner(row, 7)
 	addStroke(row, Color3.fromRGB(45, 55, 72), 1, 0.4)
@@ -1646,6 +1629,7 @@ local function addButton(page, labelText, btnText, callback)
 	lbl.Font = Enum.Font.GothamBold
 	lbl.TextSize = 12
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.ZIndex = 14
 	lbl.Parent = row
 
 	local actionBtn = Instance.new("TextButton")
@@ -1657,6 +1641,7 @@ local function addButton(page, labelText, btnText, callback)
 	actionBtn.Font = Enum.Font.GothamBold
 	actionBtn.TextSize = 11
 	actionBtn.AutoButtonColor = false
+	actionBtn.ZIndex = 14
 	actionBtn.Parent = row
 	addCorner(actionBtn, 6)
 
@@ -1680,6 +1665,7 @@ local function addTextInput(page, labelText, defaultText, placeholderText, callb
 	row.Size = UDim2.new(1, 0, 0, 36)
 	row.BackgroundColor3 = ActiveTheme.Row
 	row.BorderSizePixel = 0
+	row.ZIndex = 13
 	row.Parent = page
 	addCorner(row, 7)
 	addStroke(row, Color3.fromRGB(45, 55, 72), 1, 0.4)
@@ -1693,6 +1679,7 @@ local function addTextInput(page, labelText, defaultText, placeholderText, callb
 	lbl.Font = Enum.Font.GothamBold
 	lbl.TextSize = 12
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.ZIndex = 14
 	lbl.Parent = row
 
 	local box = Instance.new("TextBox")
@@ -1706,6 +1693,7 @@ local function addTextInput(page, labelText, defaultText, placeholderText, callb
 	box.Font = Enum.Font.GothamBold
 	box.TextSize = 11
 	box.ClearTextOnFocus = false
+	box.ZIndex = 14
 	box.Parent = row
 	addCorner(box, 6)
 	local boxStroke = addStroke(box, ActiveTheme.Accent, 1, 0.45)
@@ -1816,14 +1804,13 @@ addToggle(VisualTab, "Crosshair", false, function(v)
 	CrosshairV.Visible = v
 end)
 
+addToggle(VisualTab, "Custom Background", false, function(v)
+	applyCustomBackground(v)
+end)
+
 addToggle(VisualTab, "HD Graphics", false, function(v)
 	HDGraphics = v
 	setHDGraphics(v)
-end)
-
-addToggle(VisualTab, "Custom BG", false, function(v)
-	CustomBG = v
-	syncCustomBackgroundState()
 end)
 
 local function applyPanelSize(newWidth)
@@ -1904,7 +1891,6 @@ local savedConfigsStore = {}
 local savedConfigOrder = {}
 local cycleLoadIndex = 0
 local configNameBoxRef = nil
-local bgSourceBoxRef = nil
 local savedConfigsBtnRef = nil
 local loadConfigsBtnRef = nil
 
@@ -1990,7 +1976,6 @@ local function buildConfigSnapshot()
 		Name = currentConfigName,
 		ThemeIndex = currentThemeIndex,
 		UIKeybind = ToggleKeybind.Name,
-		CustomBGSource = customBgSourceInput,
 		Toggles = togglesSnap,
 		Keybinds = bindsSnap,
 		Sliders = slidersSnap
@@ -2014,17 +1999,6 @@ local function applyConfigSnapshot(cfg)
 			if keybindBtnRef and keybindBtnRef.Parent then
 				keybindBtnRef.Text = ToggleKeybind.Name
 			end
-		end
-	end
-
-	if typeof(cfg.CustomBGSource) == "string" and cfg.CustomBGSource ~= "" then
-		customBgSourceInput = cfg.CustomBGSource
-		if bgSourceBoxRef and bgSourceBoxRef.Parent then
-			bgSourceBoxRef.Text = customBgSourceInput
-		end
-		local assetUri = resolveBackgroundSource(customBgSourceInput)
-		if assetUri then
-			resolvedBgAsset = assetUri
 		end
 	end
 
@@ -2055,7 +2029,6 @@ local function applyConfigSnapshot(cfg)
 		end
 	end
 
-	syncCustomBackgroundState()
 	return true
 end
 
@@ -2068,55 +2041,6 @@ end)
 panelColourBtnRef = addButton(SettingsTab, "Panel Colour", ActiveTheme.Name, function()
 	currentThemeIndex = (currentThemeIndex % #PanelThemes) + 1
 	applyPanelTheme(PanelThemes[currentThemeIndex])
-end)
-
-bgSourceBoxRef = addTextInput(SettingsTab, "BG Source", customBgSourceInput, "URL or rbxassetid://", function(enteredText)
-	customBgSourceInput = tostring(enteredText or "")
-end)
-
-addButton(SettingsTab, "Custom BG File", "Apply BG", function(btn)
-	local rawSrc = bgSourceBoxRef and bgSourceBoxRef.Text or customBgSourceInput
-	customBgSourceInput = tostring(rawSrc or "")
-	local bgToast = notifyLoader("Background Loader", "Applying background...", 2.5)
-
-	task.spawn(function()
-		local assetUri, statusMsg = resolveBackgroundSource(customBgSourceInput)
-		if assetUri then
-			resolvedBgAsset = assetUri
-			if not CustomBG then
-				local bgCtrl = toggleControllers["Custom BG"]
-				if bgCtrl then
-					bgCtrl.SetState(true)
-				else
-					CustomBG = true
-				end
-			end
-			syncCustomBackgroundState()
-			if bgToast then
-				bgToast:Complete("Background Loader", statusMsg, 0.9)
-			end
-			if btn and btn.Parent then
-				btn.Text = "BG Applied"
-				task.delay(1.2, function()
-					if btn and btn.Parent then
-						btn.Text = "Apply BG"
-					end
-				end)
-			end
-		else
-			if bgToast then
-				bgToast:Complete("Background Loader", statusMsg, 1.0)
-			end
-			if btn and btn.Parent then
-				btn.Text = "Invalid BG"
-				task.delay(1.2, function()
-					if btn and btn.Parent then
-						btn.Text = "Apply BG"
-					end
-				end)
-			end
-		end
-	end)
 end)
 
 configNameBoxRef = addTextInput(SettingsTab, "Config Name", currentConfigName, "Enter name...", function(enteredText)
@@ -2196,6 +2120,12 @@ end)
 
 addToggle(SettingsTab, "Phone Eco Mode", false, function(v)
 	PhoneEcoMode = v
+	if PhoneEcoMode then
+		FullScreenBg.Visible = false
+	elseif CustomBackground and resolvedBgAsset then
+		FullScreenBg.Image = resolvedBgAsset
+		FullScreenBg.Visible = true
+	end
 end)
 
 addButton(SettingsTab, "Server Hop", "Join Server", function(btn)
